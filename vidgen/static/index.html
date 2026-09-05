@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vidgen</title>
+<style>
+  :root {
+    --bg: #0e1013;
+    --panel: #161a20;
+    --panel-2: #1d222a;
+    --line: #2a313b;
+    --text: #e6e9ee;
+    --muted: #8f9aa9;
+    --accent: #6ea8fe;
+    --ok: #57c98a;
+    --warn: #e8b45a;
+    --bad: #e8695a;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif;
+  }
+  a { color: var(--accent); }
+  header {
+    position: sticky; top: 0; z-index: 20; background: rgba(14,16,19,.94);
+    backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
+    padding: 10px 18px; display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+  }
+  .brand { font-weight: 650; letter-spacing: .2px; font-size: 15px; }
+  .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+  .spacer { flex: 1; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px; background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; font-size: 12.5px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.live { background: var(--ok); box-shadow: 0 0 0 3px rgba(87,201,138,.16); }
+  .dot.warn { background: var(--warn); }
+  .dot.bad { background: var(--bad); }
+  .membar {
+    width: 190px; height: 8px; border-radius: 999px; background: #232a33;
+    overflow: hidden; position: relative; border: 1px solid var(--line);
+  }
+  .membar i { display: block; height: 100%; background: var(--ok); transition: width .4s ease, background .4s; }
+  .membar b {
+    position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--bad); opacity: .85;
+  }
+  nav { display: flex; gap: 4px; padding: 12px 18px 0; flex-wrap: wrap; }
+  nav button {
+    background: none; border: 1px solid transparent; color: var(--muted);
+    padding: 8px 15px; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 14px;
+  }
+  nav button.on { color: var(--text); background: var(--panel); border-color: var(--line); border-bottom-color: var(--panel); }
+  main { padding: 0 18px 60px; }
+  .view { display: none; }
+  .view.on { display: block; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 16px; margin-top: 14px;
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .cols { display: grid; grid-template-columns: minmax(0,1.15fr) minmax(0,1fr); gap: 14px; align-items: start; }
+  @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; letter-spacing: .2px; }
+  input, select, textarea, button.btn {
+    width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 9px 11px; font: inherit; font-size: 13.5px;
+  }
+  textarea { resize: vertical; min-height: 76px; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  button.btn { cursor: pointer; }
+  .primary { background: var(--accent); border-color: var(--accent); color: #06101f; font-weight: 620; }
+  .primary:disabled { opacity: .45; cursor: not-allowed; }
+  .ghost { background: transparent; }
+  .danger { color: var(--bad); border-color: #45272a; background: transparent; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  .est { font-size: 12.5px; margin-top: 10px; padding: 9px 11px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line); }
+  .est.ok { border-color: #2c4a38; }
+  .est.bad { border-color: #4a2c2c; color: #ffbdb4; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  .status { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+  .s-queued { color: var(--muted); }
+  .s-held { color: var(--warn); border-color: #4a3d22; }
+  .s-running { color: var(--accent); border-color: #26405f; }
+  .s-completed { color: var(--ok); border-color: #2c4a38; }
+  .s-failed { color: var(--bad); border-color: #4a2c2c; }
+  .s-cancelled { color: var(--muted); }
+  .bar { height: 5px; background: #232a33; border-radius: 999px; overflow: hidden; margin-top: 6px; }
+  .bar i { display: block; height: 100%; background: var(--accent); transition: width .3s; }
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; margin-top: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .card .media { background: #05070a; aspect-ratio: 16/10; display: flex; align-items: center; justify-content: center; }
+  .card .media img, .card .media video { max-width: 100%; max-height: 100%; display: block; }
+  .card .body { padding: 10px 12px; }
+  .card .p { font-size: 12.5px; max-height: 3em; overflow: hidden; }
+  .tags { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
+  .tag { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+  canvas.paint { max-width: 100%; touch-action: none; cursor: crosshair; border-radius: 8px; background: #05070a; display: block; }
+  .stack { position: relative; display: inline-block; max-width: 100%; }
+  .stack canvas { position: absolute; inset: 0; background: transparent; }
+  .stack canvas.base { position: static; background: #05070a; }
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .compare figure { margin: 0; }
+  .compare img { width: 100%; border-radius: 8px; border: 1px solid var(--line); }
+  .compare figcaption { font-size: 12px; color: var(--muted); margin-top: 5px; }
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 12px; max-width: 900px; width: 92vw; padding: 0; }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  dialog .dhead { padding: 13px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; }
+  dialog .dbody { padding: 16px; max-height: 74vh; overflow: auto; }
+  pre { background: #05070a; border: 1px solid var(--line); border-radius: 8px; padding: 11px; overflow: auto; font-size: 12px; }
+  .toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px;
+    padding: 10px 15px; font-size: 13px; z-index: 60; opacity: 0; pointer-events: none;
+    transition: opacity .2s; max-width: 80vw;
+  }
+  .toast.show { opacity: 1; }
+  .toast.err { border-color: #4a2c2c; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">vidgen <small id="dryrun" hidden>dry run</small></div>
+  <div class="chip" title="The single model currently held in unified memory">
+    <span class="dot" id="resDot"></span>
+    <span id="resident">nothing loaded</span>
+  </div>
+  <div class="chip" title="Unified memory in use vs the configured ceiling">
+    <div class="membar"><i id="memFill" style="width:0%"></i><b id="memCeil" style="left:87.5%"></b></div>
+    <span id="memText" class="small muted">—</span>
+  </div>
+  <div class="chip" id="swapChip" hidden><span class="dot bad"></span><span id="swapText"></span></div>
+  <div class="spacer"></div>
+  <div class="chip small" id="queueChip">queue 0</div>
+</header>
+
+<nav>
+  <button data-view="video" class="on">Video</button>
+  <button data-view="image">Image</button>
+  <button data-view="inpaint">Inpaint / Outpaint</button>
+  <button data-view="queue">Queue</button>
+  <button data-view="gallery">Gallery</button>
+</nav>
+
+<main>
+
+<!-- ============================ VIDEO ============================ -->
+<section class="view on" id="view-video">
+  <div class="cols">
+    <div class="panel">
+      <label>Prompt</label>
+      <textarea id="v_prompt" placeholder="A lighthouse in heavy fog, slow push-in, anamorphic, cinematic"></textarea>
+      <div style="margin-top:12px"><label>Negative prompt <span class="muted">(optional)</span></label>
+        <input id="v_negative" placeholder="blurry, low quality, watermark"></div>
+
+      <div class="grid" style="margin-top:12px">
+        <div><label>Engine</label><select id="v_model"></select></div>
+        <div><label>Preset</label><select id="v_preset"></select></div>
+        <div><label>Quantization</label><select id="v_quant"></select></div>
+      </div>
+
+      <div class="grid" style="margin-top:12px">
+        <div><label>Width</label><input id="v_width" type="number" step="64" value="768"></div>
+        <div><label>Height</label><input id="v_height" type="number" step="64" value="512"></div>
+        <div><label>FPS</label><input id="v_fps" type="number" value="24" min="8" max="60"></div>
+        <div><label>Duration (s)</label><input id="v_duration" type="number" step="0.5" value="4"></div>
+        <div><label>Guidance (cfg)</label><input id="v_cfg" type="number" step="0.1" placeholder="3.0"></div>
+        <div><label>Seed <span class="muted">(blank = random)</span></label><input id="v_seed" type="number" placeholder="random"></div>
+      </div>
+
+      <div style="margin-top:12px">
+        <label>Start image <span class="muted">(optional — makes this image-to-video)</span></label>
+        <input id="v_image" type="file" accept="image/png,image/jpeg,image/webp">
+        <div id="v_image_prev" class="hint"></div>
+      </div>
+
+      <div class="est" id="v_est">—</div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn primary" id="v_submit">Queue video job</button>
+      </div>
+      <div class="hint" id="v_note"></div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin:0 0 8px;font-size:14px">Preset guide</h3>
+      <div id="v_presetinfo" class="small muted"></div>
+      <div class="hint">
+        Frame counts snap to 8n+1 and dimensions to multiples of 64 — both engines
+        require it, so the server rounds rather than failing your job.
+      </div>
+      <div class="hint">
+        This machine is fanless. Back-to-back Super-Quality renders will thermally
+        throttle: expect later jobs in a long session to run slower than the first.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ IMAGE ============================ -->
+<section class="view" id="view-image">
+  <div class="cols">
+    <div class="panel">
+      <label>Prompt</label>
+      <textarea id="i_prompt" placeholder="A brass telescope on a wooden desk, warm window light, 50mm"></textarea>
+      <div class="grid" style="margin-top:12px">
+        <div><label>Model</label><select id="i_model"></select></div>
+        <div><label>Preset</label><select id="i_preset"></select></div>
+        <div><label>Quantization</label><select id="i_quant"></select></div>
+        <div><label>Steps</label><input id="i_steps" type="number" value="25" min="1" max="100"></div>
+        <div><label>Guidance</label><input id="i_guidance" type="number" step="0.1" value="3.5"></div>
+        <div><label>Width</label><input id="i_width" type="number" step="16" value="1024"></div>
+        <div><label>Height</label><input id="i_height" type="number" step="16" value="1024"></div>
+        <div><label>Seed <span class="muted">(blank = random)</span></label><input id="i_seed" type="number" placeholder="random"></div>
+      </div>
+      <div class="est" id="i_est">—</div>
+      <div class="row" style="margin-top:12px"><button class="btn primary" id="i_submit">Queue image job</button></div>
+    </div>
+    <div class="panel">
+      <h3 style="margin:0 0 8px;font-size:14px">Quantization</h3>
+      <div id="i_quantinfo" class="small muted"></div>
+      <div class="hint">
+        Q8 is the default because it is near-indistinguishable from full precision
+        at roughly half the memory. Q4 fits more easily but the quality drop is
+        visible — use it only if the guard is refusing everything else.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =========================== INPAINT =========================== -->
+<section class="view" id="view-inpaint">
+  <div class="cols">
+    <div class="panel">
+      <label>Source image</label>
+      <input id="p_file" type="file" accept="image/png,image/jpeg,image/webp">
+
+      <div class="grid" style="margin-top:12px">
+        <div><label>Brush size <span id="p_brushval" class="muted">48px</span></label>
+          <input id="p_brush" type="range" min="4" max="300" value="48"></div>
+        <div><label>Mode</label>
+          <select id="p_mode"><option value="paint">Paint mask</option><option value="erase">Erase mask</option></select></div>
+        <div><label>&nbsp;</label><button class="btn ghost" id="p_clear">Clear mask</button></div>
+        <div><label>&nbsp;</label><button class="btn ghost" id="p_invert">Invert mask</button></div>
+      </div>
+
+      <details style="margin-top:12px">
+        <summary class="small muted" style="cursor:pointer">Outpaint — extend the canvas</summary>
+        <div class="grid" style="margin-top:10px">
+          <div><label>Top px</label><input id="p_ot" type="number" value="0" min="0" step="16"></div>
+          <div><label>Right px</label><input id="p_or" type="number" value="0" min="0" step="16"></div>
+          <div><label>Bottom px</label><input id="p_ob" type="number" value="0" min="0" step="16"></div>
+          <div><label>Left px</label><input id="p_ol" type="number" value="0" min="0" step="16"></div>
+        </div>
+        <div class="row" style="margin-top:10px"><button class="btn ghost" id="p_apply_out">Apply margins</button></div>
+        <div class="hint">Margins are added to the canvas and pre-filled into the mask, so Fill paints new scene into them.</div>
+      </details>
+
+      <div style="margin-top:14px" class="stack" id="p_stack" hidden>
+        <canvas class="paint base" id="p_base"></canvas>
+        <canvas class="paint" id="p_overlay"></canvas>
+      </div>
+      <div class="hint" id="p_dims"></div>
+
+      <div style="margin-top:12px"><label>Prompt for the masked region</label>
+        <textarea id="p_prompt" placeholder="a tall arched window looking onto a garden"></textarea></div>
+
+      <div class="grid" style="margin-top:12px">
+        <div><label>Quantization</label><select id="p_quant"></select></div>
+        <div><label>Steps</label><input id="p_steps" type="number" value="25" min="1" max="100"></div>
+        <div><label>Guidance</label><input id="p_guidance" type="number" step="0.5" value="30"></div>
+        <div><label>Seed <span class="muted">(blank = random)</span></label><input id="p_seed" type="number" placeholder="random"></div>
+      </div>
+
+      <div class="est" id="p_est">—</div>
+      <div class="row" style="margin-top:12px"><button class="btn primary" id="p_submit" disabled>Queue inpaint job</button></div>
+      <div class="hint">Guidance 30 / 25 steps are FLUX.1-Fill-dev's documented defaults. White = regenerate, black = keep.</div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin:0 0 10px;font-size:14px">Result</h3>
+      <div id="p_result" class="muted small">Queue a job and the before/after will appear here.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ QUEUE ============================ -->
+<section class="view" id="view-queue">
+  <div class="panel">
+    <div class="row" style="justify-content:space-between;margin-bottom:6px">
+      <div class="small muted" id="q_summary">—</div>
+      <div style="width:auto"><button class="btn ghost small" id="q_clear" style="width:auto">Clear finished</button></div>
+    </div>
+    <table>
+      <thead><tr><th style="width:88px">Status</th><th>Job</th><th style="width:150px">Model</th><th style="width:110px">Memory</th><th style="width:90px"></th></tr></thead>
+      <tbody id="q_body"></tbody>
+    </table>
+  </div>
+  <div class="panel">
+    <h3 style="margin:0 0 8px;font-size:14px">Model manager log</h3>
+    <pre id="q_events" style="max-height:220px">—</pre>
+  </div>
+</section>
+
+<!-- =========================== GALLERY =========================== -->
+<section class="view" id="view-gallery">
+  <div class="panel">
+    <div class="grid">
+      <div><label>Type</label><select id="g_type"><option value="">All types</option><option value="video">Video</option><option value="image">Image</option><option value="inpaint">Inpaint</option></select></div>
+      <div><label>Model</label><select id="g_model"><option value="">All models</option></select></div>
+      <div><label>&nbsp;</label><button class="btn ghost" id="g_refresh">Refresh</button></div>
+    </div>
+  </div>
+  <div class="gallery" id="g_grid"></div>
+  <div class="panel" id="g_empty" hidden><span class="muted">No finished outputs yet.</span></div>
+</section>
+
+</main>
+
+<dialog id="detail"><div class="dhead"><strong id="d_title">Job</strong><div class="spacer"></div><button class="btn ghost" style="width:auto" onclick="document.getElementById('detail').close()">Close</button></div><div class="dbody" id="d_body"></div></dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+let CATALOG = null;
+let STATUS = null;
+let lastJobsSig = "";
+
+function toast(msg, isErr) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = "toast show" + (isErr ? " err" : "");
+  clearTimeout(t._h);
+  t._h = setTimeout(() => (t.className = "toast"), 4200);
+}
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const text = await res.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch (e) { body = { detail: text }; }
+  if (!res.ok) {
+    const d = body && body.detail;
+    throw new Error(typeof d === "string" ? d : JSON.stringify(d || res.statusText));
+  }
+  return body;
+}
+
+function opt(value, label) { const o = document.createElement("option"); o.value = value; o.textContent = label; return o; }
+function fmtBytesGb(g) { return (g == null ? "—" : g.toFixed(1) + "GB"); }
+function ago(ts) {
+  if (!ts) return "—";
+  const s = Math.max(0, Date.now() / 1000 - ts);
+  if (s < 60) return Math.round(s) + "s ago";
+  if (s < 3600) return Math.round(s / 60) + "m ago";
+  return Math.round(s / 3600) + "h ago";
+}
+function dur(a, b) { return (a && b) ? Math.round(b - a) + "s" : "—"; }
+
+/* ---------------------------------------------------------------- tabs */
+document.querySelectorAll("nav button").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("on", x === b));
+    document.querySelectorAll(".view").forEach((v) => v.classList.toggle("on", v.id === "view-" + b.dataset.view));
+    if (b.dataset.view === "gallery") loadGallery();
+  };
+});
+
+/* ------------------------------------------------------------- catalog */
+function modelsFor(type) { return CATALOG.models.filter((m) => m.job_types.includes(type)); }
+
+function fillModelSelect(sel, type) {
+  sel.innerHTML = "";
+  modelsFor(type).forEach((m) => sel.appendChild(opt(m.key, m.label)));
+  sel.value = CATALOG.defaults[type];
+}
+
+function fillPresetQuant(modelKey, presetSel, quantSel) {
+  const m = CATALOG.models.find((x) => x.key === modelKey);
+  if (!m) return null;
+  if (presetSel) {
+    presetSel.innerHTML = "";
+    m.presets.forEach((p) => presetSel.appendChild(opt(p.key, p.label)));
+    presetSel.value = m.default_preset || (m.presets[0] && m.presets[0].key);
+  }
+  if (quantSel) {
+    quantSel.innerHTML = "";
+    m.quants.forEach((q) => quantSel.appendChild(opt(q, q.toUpperCase() + " · ~" + m.footprints[q].toFixed(1) + "GB")));
+    quantSel.value = m.default_quant;
+  }
+  return m;
+}
+
+/* ------------------------------------------------------------ estimate */
+function debounce(fn, ms) { let h; return (...a) => { clearTimeout(h); h = setTimeout(() => fn(...a), ms); }; }
+
+async function estimate(payload, el) {
+  try {
+    const r = await api("/api/estimate", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    });
+    const d = r.detail;
+    el.className = "est " + (r.fits_now ? "ok" : "bad");
+    const res = r.resolved;
+    const extra = payload.type === "video"
+      ? ` · ${res.width}×${res.height} · ${res.num_frames} frames (${res.duration_seconds}s @ ${res.fps}fps)`
+      : ` · ${res.width}×${res.height} · ${res.steps} steps`;
+    el.textContent = r.fits_now
+      ? `≈${r.estimated_gb.toFixed(1)}GB peak — fits (${(d.ceiling_gb - d.memory.used_gb).toFixed(1)}GB free under the ${d.ceiling_gb}GB ceiling)${extra}`
+      : `≈${r.estimated_gb.toFixed(1)}GB peak — ${d.reason}`;
+  } catch (e) {
+    el.className = "est bad";
+    el.textContent = e.message;
+  }
+}
+
+/* --------------------------------------------------------------- video */
+function videoPayload() {
+  const fps = +$("v_fps").value || 24;
+  const p = {
+    type: "video",
+    prompt: $("v_prompt").value || "placeholder",
+    model: $("v_model").value,
+    preset: $("v_preset").value,
+    quant: $("v_quant").value,
+    width: +$("v_width").value || 768,
+    height: +$("v_height").value || 512,
+    fps,
+    duration_seconds: +$("v_duration").value || 4,
+  };
+  if ($("v_negative").value.trim()) p.negative_prompt = $("v_negative").value.trim();
+  if ($("v_cfg").value) p.cfg_scale = +$("v_cfg").value;
+  if ($("v_seed").value) p.seed = +$("v_seed").value;
+  if (window._vImageId) p.source_image = window._vImageId;
+  return p;
+}
+
+const estVideo = debounce(() => estimate(videoPayload(), $("v_est")), 250);
+
+function syncVideoModel() {
+  const m = fillPresetQuant($("v_model").value, $("v_preset"), $("v_quant"));
+  $("v_note").textContent = m ? m.notes : "";
+  syncPresetInfo();
+  estVideo();
+}
+function syncPresetInfo() {
+  const m = CATALOG.models.find((x) => x.key === $("v_model").value);
+  if (!m) return;
+  $("v_presetinfo").innerHTML = m.presets
+    .map((p) => `<div style="margin-bottom:8px"><strong style="color:var(--text)">${p.label}</strong><br>${p.description}</div>`)
+    .join("");
+}
+
+$("v_image").onchange = async (e) => {
+  const f = e.target.files[0];
+  if (!f) { window._vImageId = null; $("v_image_prev").textContent = ""; return; }
+  try {
+    const up = await uploadFile(f);
+    window._vImageId = up.id;
+    $("v_image_prev").textContent = `image-to-video: ${f.name}${up.width ? ` (${up.width}×${up.height})` : ""}`;
+  } catch (err) { toast(err.message, true); }
+};
+
+$("v_submit").onclick = async () => {
+  const p = videoPayload();
+  if (!$("v_prompt").value.trim()) return toast("A prompt is required.", true);
+  p.prompt = $("v_prompt").value.trim();
+  try {
+    const job = await api("/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) });
+    toast(`Queued ${job.id} — ${job.model} / ${job.preset}`);
+    refresh(true);
+  } catch (e) { toast(e.message, true); }
+};
+
+/* --------------------------------------------------------------- image */
+function imagePayload() {
+  const p = {
+    type: "image",
+    prompt: $("i_prompt").value || "placeholder",
+    model: $("i_model").value,
+    preset: $("i_preset").value,
+    quant: $("i_quant").value,
+    width: +$("i_width").value || 1024,
+    height: +$("i_height").value || 1024,
+    steps: +$("i_steps").value || 25,
+    guidance: +$("i_guidance").value || 3.5,
+  };
+  if ($("i_seed").value) p.seed = +$("i_seed").value;
+  return p;
+}
+const estImage = debounce(() => estimate(imagePayload(), $("i_est")), 250);
+
+$("i_submit").onclick = async () => {
+  if (!$("i_prompt").value.trim()) return toast("A prompt is required.", true);
+  const p = imagePayload();
+  p.prompt = $("i_prompt").value.trim();
+  try {
+    const job = await api("/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) });
+    toast(`Queued ${job.id}`);
+    refresh(true);
+  } catch (e) { toast(e.message, true); }
+};
+
+/* ------------------------------------------------------------- inpaint */
+const paint = {
+  img: null, w: 0, h: 0, drawing: false, last: null,
+  base: null, overlay: null, mask: null, maskCtx: null,
+};
+
+function initCanvases(image, w, h, offsetX, offsetY) {
+  paint.w = w; paint.h = h;
+  const base = $("p_base"), overlay = $("p_overlay");
+  base.width = overlay.width = w;
+  base.height = overlay.height = h;
+  const displayW = Math.min(w, 560);
+  base.style.width = overlay.style.width = displayW + "px";
+  base.style.height = overlay.style.height = (h * displayW / w) + "px";
+
+  const bctx = base.getContext("2d");
+  bctx.fillStyle = "#101418";
+  bctx.fillRect(0, 0, w, h);
+  bctx.drawImage(image, offsetX, offsetY, image.naturalWidth, image.naturalHeight);
+
+  // Mask canvas (offscreen). Painted areas are opaque white, everything else
+  // is transparent; the exported PNG flattens that onto black, which is the
+  // convention FLUX.1-Fill expects (white = regenerate, black = keep).
+  paint.mask = document.createElement("canvas");
+  paint.mask.width = w; paint.mask.height = h;
+  paint.maskCtx = paint.mask.getContext("2d");
+  paint.maskCtx.clearRect(0, 0, w, h);
+
+  // Outpaint margins start already masked.
+  if (offsetX || offsetY || image.naturalWidth !== w || image.naturalHeight !== h) {
+    paint.maskCtx.fillStyle = "#fff";
+    paint.maskCtx.fillRect(0, 0, w, h);
+    paint.maskCtx.clearRect(offsetX, offsetY, image.naturalWidth, image.naturalHeight);
+  }
+
+  paint.base = base; paint.overlay = overlay;
+  paint.offsetX = offsetX; paint.offsetY = offsetY; paint.image = image;
+  $("p_stack").hidden = false;
+  $("p_dims").textContent = `Canvas ${w}×${h}px — mask painted at full resolution.`;
+  $("p_submit").disabled = false;
+  renderOverlay();
+  estInpaint();
+}
+
+function renderOverlay() {
+  const ctx = paint.overlay.getContext("2d");
+  ctx.clearRect(0, 0, paint.w, paint.h);
+  ctx.save();
+  ctx.globalAlpha = 0.45;
+  ctx.fillStyle = "#6ea8fe";
+  // Draw the mask as a translucent tint.
+  const tmp = document.createElement("canvas");
+  tmp.width = paint.w; tmp.height = paint.h;
+  const tctx = tmp.getContext("2d");
+  tctx.drawImage(paint.mask, 0, 0);
+  tctx.globalCompositeOperation = "source-in";
+  tctx.fillStyle = "#6ea8fe";
+  tctx.fillRect(0, 0, paint.w, paint.h);
+  ctx.drawImage(tmp, 0, 0);
+  ctx.restore();
+}
+
+function canvasPos(evt) {
+  const r = paint.overlay.getBoundingClientRect();
+  return {
+    x: (evt.clientX - r.left) * (paint.w / r.width),
+    y: (evt.clientY - r.top) * (paint.h / r.height),
+  };
+}
+
+function stroke(a, b) {
+  const ctx = paint.maskCtx;
+  const size = +$("p_brush").value;
+  const erasing = $("p_mode").value === "erase";
+  ctx.save();
+  ctx.globalCompositeOperation = erasing ? "destination-out" : "source-over";
+  ctx.strokeStyle = "#fff";
+  ctx.fillStyle = "#fff";
+  ctx.lineWidth = size;
+  ctx.lineCap = ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.stroke();
+  ctx.restore();
+  renderOverlay();
+}
+
+["pointerdown", "pointermove", "pointerup", "pointerleave"].forEach((ev) => {
+  $("p_overlay").addEventListener(ev, (e) => {
+    if (!paint.mask) return;
+    if (ev === "pointerdown") {
+      paint.drawing = true;
+      paint.last = canvasPos(e);
+      stroke(paint.last, paint.last);
+      $("p_overlay").setPointerCapture(e.pointerId);
+    } else if (ev === "pointermove" && paint.drawing) {
+      const p = canvasPos(e);
+      stroke(paint.last, p);
+      paint.last = p;
+    } else {
+      paint.drawing = false;
+    }
+    e.preventDefault();
+  });
+});
+
+$("p_brush").oninput = () => ($("p_brushval").textContent = $("p_brush").value + "px");
+$("p_clear").onclick = () => {
+  if (!paint.maskCtx) return;
+  paint.maskCtx.clearRect(0, 0, paint.w, paint.h);
+  renderOverlay();
+};
+$("p_invert").onclick = () => {
+  if (!paint.maskCtx) return;
+  const tmp = document.createElement("canvas");
+  tmp.width = paint.w; tmp.height = paint.h;
+  const tctx = tmp.getContext("2d");
+  tctx.fillStyle = "#fff";
+  tctx.fillRect(0, 0, paint.w, paint.h);
+  tctx.globalCompositeOperation = "destination-out";
+  tctx.drawImage(paint.mask, 0, 0);
+  paint.maskCtx.clearRect(0, 0, paint.w, paint.h);
+  paint.maskCtx.drawImage(tmp, 0, 0);
+  renderOverlay();
+};
+
+$("p_file").onchange = (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const img = new Image();
+  img.onload = () => { paint.img = img; applyOutpaint(); };
+  img.src = URL.createObjectURL(f);
+};
+
+function round16(n) { return Math.max(16, Math.round(n / 16) * 16); }
+
+function applyOutpaint() {
+  if (!paint.img) return toast("Load a source image first.", true);
+  const t = +$("p_ot").value || 0, r = +$("p_or").value || 0,
+        b = +$("p_ob").value || 0, l = +$("p_ol").value || 0;
+  const w = round16(paint.img.naturalWidth + l + r);
+  const h = round16(paint.img.naturalHeight + t + b);
+  initCanvases(paint.img, w, h, l, t);
+}
+$("p_apply_out").onclick = applyOutpaint;
+
+function inpaintPayload() {
+  const p = {
+    type: "inpaint",
+    prompt: $("p_prompt").value || "placeholder",
+    quant: $("p_quant").value,
+    steps: +$("p_steps").value || 25,
+    guidance: +$("p_guidance").value || 30,
+    width: paint.w || 1024,
+    height: paint.h || 1024,
+    source_image: "pending", mask_image: "pending",
+  };
+  if ($("p_seed").value) p.seed = +$("p_seed").value;
+  return p;
+}
+const estInpaint = debounce(() => estimate(inpaintPayload(), $("p_est")), 250);
+
+function canvasToBlob(canvas) {
+  return new Promise((res) => canvas.toBlob(res, "image/png"));
+}
+
+/** Flatten the transparent mask onto black: white = regenerate, black = keep. */
+function flattenedMask() {
+  const out = document.createElement("canvas");
+  out.width = paint.w; out.height = paint.h;
+  const ctx = out.getContext("2d");
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, paint.w, paint.h);
+  ctx.drawImage(paint.mask, 0, 0);
+  return out;
+}
+
+function maskIsEmpty() {
+  const d = paint.maskCtx.getImageData(0, 0, paint.w, paint.h).data;
+  for (let i = 3; i < d.length; i += 4) if (d[i] > 8) return false;
+  return true;
+}
+
+async function uploadFile(fileOrBlob, name) {
+  const fd = new FormData();
+  fd.append("file", fileOrBlob, name || fileOrBlob.name || "upload.png");
+  return api("/uploads", { method: "POST", body: fd });
+}
+
+$("p_submit").onclick = async () => {
+  if (!paint.mask) return toast("Load an image first.", true);
+  if (!$("p_prompt").value.trim()) return toast("A prompt for the masked region is required.", true);
+  if (maskIsEmpty()) return toast("Paint a mask first — nothing is marked for regeneration.", true);
+  $("p_submit").disabled = true;
+  try {
+    const srcBlob = await canvasToBlob(paint.base);
+    const maskBlob = await canvasToBlob(flattenedMask());
+    const src = await uploadFile(srcBlob, "source.png");
+    const mask = await uploadFile(maskBlob, "mask.png");
+    const p = inpaintPayload();
+    p.prompt = $("p_prompt").value.trim();
+    p.source_image = src.id;
+    p.mask_image = mask.id;
+    const job = await api("/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) });
+    window._watchInpaint = job.id;
+    toast(`Queued ${job.id}`);
+    renderInpaintResult(job);
+    refresh(true);
+  } catch (e) { toast(e.message, true); }
+  finally { $("p_submit").disabled = false; }
+};
+
+function renderInpaintResult(job) {
+  const el = $("p_result");
+  if (job.status === "completed") {
+    el.innerHTML = `<div class="compare">
+      <figure><img src="/outputs/${job.id}/source.png" alt="before"><figcaption>Before</figcaption></figure>
+      <figure><img src="/outputs/${job.id}/file" alt="after"><figcaption>After</figcaption></figure>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <a class="btn ghost" style="width:auto;text-decoration:none;text-align:center" href="/outputs/${job.id}/file?download=true">Download</a>
+      <button class="btn ghost" style="width:auto" onclick="showDetail('${job.id}')">Details</button>
+    </div>`;
+  } else if (job.status === "failed") {
+    el.innerHTML = `<div class="small" style="color:var(--bad)">Failed: ${escapeHtml(job.error || "")}</div>`;
+  } else {
+    el.innerHTML = `<div class="small muted">${job.status}${job.message ? " — " + escapeHtml(job.message) : ""}</div>
+      <div class="bar"><i style="width:${Math.round((job.progress || 0) * 100)}%"></i></div>`;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* --------------------------------------------------------------- queue */
+function renderQueue(jobs) {
+  const body = $("q_body");
+  const active = jobs.filter((j) => ["queued", "held", "running"].includes(j.status));
+  const recent = jobs.filter((j) => !["queued", "held", "running"].includes(j.status)).slice(0, 20);
+  const rows = [...active, ...recent];
+  body.innerHTML = rows.map((j) => {
+    const pct = Math.round((j.progress || 0) * 100);
+    const cancellable = ["queued", "held", "running"].includes(j.status);
+    return `<tr>
+      <td><span class="status s-${j.status}">${j.status}</span></td>
+      <td>
+        <div><strong>${escapeHtml((j.prompt || "").slice(0, 90))}</strong></div>
+        <div class="small muted">${j.type} · ${j.id} · ${ago(j.created_at)}${j.started_at ? " · ran " + dur(j.started_at, j.finished_at || Date.now() / 1000) : ""}</div>
+        ${j.status === "running" ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}
+        ${j.status === "held" ? `<div class="small" style="color:var(--warn)">${escapeHtml(j.message || "waiting for memory")}</div>` : ""}
+        ${j.status === "failed" ? `<div class="small" style="color:var(--bad)">${escapeHtml((j.error || "").split("\n")[0])}</div>` : ""}
+      </td>
+      <td class="small">${escapeHtml(j.model)}<br><span class="muted">${escapeHtml(j.preset || "")} · ${escapeHtml(j.quant || "")}</span></td>
+      <td class="small">${j.peak_gb ? "peak " + fmtBytesGb(j.peak_gb) : "est " + fmtBytesGb(j.estimated_gb)}</td>
+      <td>
+        <button class="btn ghost small" style="width:auto" onclick="showDetail('${j.id}')">Info</button>
+        ${cancellable ? `<button class="btn danger small" style="width:auto;margin-top:4px" onclick="killJob('${j.id}')">Cancel</button>` : ""}
+      </td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="5" class="muted small">Queue is empty.</td></tr>`;
+
+  $("q_summary").textContent =
+    `${active.length} active · ${jobs.filter((j) => j.status === "completed").length} completed · ${jobs.filter((j) => j.status === "failed").length} failed`;
+}
+
+window.killJob = async (id) => {
+  try { await api("/jobs/" + id, { method: "DELETE" }); toast("Cancelled " + id); refresh(true); }
+  catch (e) { toast(e.message, true); }
+};
+
+window.showDetail = async (id) => {
+  try {
+    const j = await api("/jobs/" + id);
+    $("d_title").textContent = `${j.type} · ${j.id}`;
+    $("d_body").innerHTML = `
+      <div class="small muted">${j.status} · ${escapeHtml(j.model)} ${escapeHtml(j.preset || "")} ${escapeHtml(j.quant || "")}</div>
+      <p>${escapeHtml(j.prompt || "")}</p>
+      ${j.error ? `<pre style="color:#ffbdb4">${escapeHtml(j.error)}</pre>` : ""}
+      <pre>${escapeHtml(JSON.stringify(j.meta || j.params, null, 2))}</pre>`;
+    $("detail").showModal();
+  } catch (e) { toast(e.message, true); }
+};
+
+$("q_clear").onclick = async () => {
+  const jobs = (await api("/jobs")).jobs.filter((j) => ["completed", "failed", "cancelled"].includes(j.status));
+  if (!jobs.length) return toast("Nothing to clear.");
+  if (!confirm(`Delete ${jobs.length} finished job(s) and their output files?`)) return;
+  for (const j of jobs) { try { await api(`/jobs/${j.id}?purge=true`, { method: "DELETE" }); } catch (e) {} }
+  toast("Cleared.");
+  refresh(true); loadGallery();
+};
+
+/* ------------------------------------------------------------- gallery */
+async function loadGallery() {
+  const params = new URLSearchParams({ status: "completed", limit: "300" });
+  if ($("g_type").value) params.set("type", $("g_type").value);
+  if ($("g_model").value) params.set("model", $("g_model").value);
+  const { jobs } = await api("/jobs?" + params.toString());
+  const grid = $("g_grid");
+  $("g_empty").hidden = jobs.length > 0;
+  grid.innerHTML = jobs.map((j) => {
+    const media = j.type === "video"
+      ? `<video src="/outputs/${j.id}/file" controls preload="metadata" muted loop></video>`
+      : `<img src="/outputs/${j.id}/file" loading="lazy" alt="">`;
+    return `<div class="card">
+      <div class="media">${media}</div>
+      <div class="body">
+        <div class="p">${escapeHtml((j.prompt || "").slice(0, 140))}</div>
+        <div class="tags">
+          <span class="tag">${j.type}</span>
+          <span class="tag">${escapeHtml(j.model)}</span>
+          ${j.preset ? `<span class="tag">${escapeHtml(j.preset)}</span>` : ""}
+          ${j.quant ? `<span class="tag">${escapeHtml(j.quant)}</span>` : ""}
+          ${j.peak_gb ? `<span class="tag">${fmtBytesGb(j.peak_gb)} peak</span>` : ""}
+        </div>
+        <div class="row" style="margin-top:9px">
+          <a class="btn ghost small" style="width:auto;text-decoration:none" href="/outputs/${j.id}/file?download=true">Download</a>
+          <button class="btn ghost small" style="width:auto" onclick="showDetail('${j.id}')">Info</button>
+          <button class="btn danger small" style="width:auto" onclick="delJob('${j.id}')">Delete</button>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+window.delJob = async (id) => {
+  if (!confirm("Delete this job and its output files?")) return;
+  try { await api(`/jobs/${id}?purge=true`, { method: "DELETE" }); toast("Deleted."); loadGallery(); refresh(true); }
+  catch (e) { toast(e.message, true); }
+};
+
+$("g_type").onchange = $("g_model").onchange = loadGallery;
+$("g_refresh").onclick = loadGallery;
+
+/* --------------------------------------------------------------- polls */
+function renderStatus(s) {
+  STATUS = s;
+  $("dryrun").hidden = !s.dry_run;
+  const r = s.resident_model;
+  $("resident").textContent = r
+    ? `${r.label} · ${r.quant}${r.preset ? " · " + r.preset : ""} · ${r.resident_seconds.toFixed(0)}s${r.peak_rss_gb ? " · " + fmtBytesGb(r.peak_rss_gb) : ""}`
+    : "nothing loaded";
+  $("resDot").className = "dot" + (r ? " live" : "");
+
+  const m = s.memory;
+  const pct = m.total_gb ? Math.min(100, (m.used_gb / m.total_gb) * 100) : 0;
+  const ceilPct = m.total_gb ? (s.ceiling_gb / m.total_gb) * 100 : 87.5;
+  $("memFill").style.width = pct + "%";
+  $("memCeil").style.left = ceilPct + "%";
+  $("memFill").style.background = m.used_gb > s.ceiling_gb ? "var(--bad)" : (m.used_gb > s.ceiling_gb * 0.85 ? "var(--warn)" : "var(--ok)");
+  $("memText").textContent = `${m.used_gb.toFixed(1)} / ${m.total_gb.toFixed(0)}GB · ${s.headroom_gb.toFixed(1)}GB under ceiling`;
+
+  $("swapChip").hidden = !s.swapping;
+  $("swapText").textContent = `swapping ${m.swap_used_gb.toFixed(1)}GB — close some apps`;
+
+  const q = s.queue;
+  $("queueChip").textContent = `queue ${q.queued + q.held + q.running}${q.held ? ` · ${q.held} held` : ""}`;
+
+  $("q_events").textContent = (s.events || []).slice().reverse().map((e) => {
+    const t = new Date(e.ts * 1000).toLocaleTimeString();
+    const rest = Object.entries(e).filter(([k]) => !["ts", "event"].includes(k))
+      .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`).join(" ");
+    return `${t}  ${e.event.padEnd(16)} ${rest}`;
+  }).join("\n") || "—";
+}
+
+async function refresh(force) {
+  try {
+    const [s, j] = await Promise.all([api("/api/status"), api("/jobs?limit=120")]);
+    renderStatus(s);
+    const sig = JSON.stringify(j.jobs.map((x) => [x.id, x.status, Math.round((x.progress || 0) * 20), x.message]));
+    if (force || sig !== lastJobsSig) { lastJobsSig = sig; renderQueue(j.jobs); }
+    if (window._watchInpaint) {
+      const w = j.jobs.find((x) => x.id === window._watchInpaint);
+      if (w) { renderInpaintResult(w); if (["completed", "failed", "cancelled"].includes(w.status)) window._watchInpaint = null; }
+    }
+  } catch (e) { /* server restarting; next tick will pick it up */ }
+}
+
+/* ---------------------------------------------------------------- boot */
+(async function boot() {
+  CATALOG = await api("/api/models");
+
+  fillModelSelect($("v_model"), "video");
+  fillModelSelect($("i_model"), "image");
+  syncVideoModel();
+  fillPresetQuant($("i_model").value, $("i_preset"), $("i_quant"));
+  fillPresetQuant("flux1-fill-dev", null, $("p_quant"));
+
+  const fill = CATALOG.models.find((m) => m.key === "flux1-fill-dev");
+  $("p_guidance").value = CATALOG.fill_guidance;
+
+  $("i_quantinfo").innerHTML = CATALOG.models.filter((m) => m.job_types.includes("image") || m.job_types.includes("inpaint"))
+    .map((m) => `<div style="margin-bottom:8px"><strong style="color:var(--text)">${m.label}</strong><br>${m.notes}<br>` +
+      Object.entries(m.footprints).map(([q, g]) => `${q.toUpperCase()} ≈${g.toFixed(1)}GB`).join(" · ") + `</div>`).join("");
+
+  CATALOG.models.forEach((m) => $("g_model").appendChild(opt(m.key, m.label)));
+
+  $("v_model").onchange = syncVideoModel;
+  $("i_model").onchange = () => { fillPresetQuant($("i_model").value, $("i_preset"), $("i_quant")); estImage(); };
+  $("i_preset").onchange = () => {
+    const m = CATALOG.models.find((x) => x.key === $("i_model").value);
+    const p = m && m.presets.find((x) => x.key === $("i_preset").value);
+    if (p && p.default_steps) $("i_steps").value = p.default_steps;
+    estImage();
+  };
+
+  ["v_width", "v_height", "v_fps", "v_duration", "v_preset", "v_quant", "v_cfg"].forEach((id) => { $(id).oninput = estVideo; $(id).onchange = estVideo; });
+  ["i_width", "i_height", "i_steps", "i_guidance", "i_quant"].forEach((id) => { $(id).oninput = estImage; $(id).onchange = estImage; });
+  ["p_steps", "p_guidance", "p_quant"].forEach((id) => { $(id).oninput = estInpaint; $(id).onchange = estInpaint; });
+
+  estVideo(); estImage();
+  refresh(true);
+  setInterval(refresh, 1500);
+})();
+</script>
+</body>
+</html>

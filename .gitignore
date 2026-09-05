@@ -1,0 +1,32 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# Config with local paths / credentials
+.env
+.env.local
+
+# Runtime state and generated output
+data/
+outputs/
+uploads/
+logs/
+
+# Model weights (should live in the HF cache, never here)
+*.pt
+*.ckpt
+*.safetensors
+*.gguf
+*.bin
+
+# macOS
+.DS_Store
+
+# Stale local backup of an earlier tree
+_to_delete_scaffold.tgz
