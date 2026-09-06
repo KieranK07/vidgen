@@ -9,6 +9,10 @@ Fully local: no cloud calls, no telemetry, no accounts. The only network traffic
 is the initial model download from Hugging Face, which you can do once and then
 run offline.
 
+![Queue view showing a job held with a plain-language memory reason ("needs ~11.2GB but only 8.9GB is free under the 28GB ceiling... Over by 3.4GB"), alongside queued and completed jobs and the model manager log](docs/img/dashboard-held-job.png)
+
+![FastAPI /docs endpoint list for the vidgen HTTP API](docs/img/api-docs.png)
+
 ```
   Video   LTX-2.3 (22B) via mlx-video, Quality / Super-Quality two-stage
           Wan2.2 14B via mlx-video, Q5/Q6 GGUF (alternate engine)
