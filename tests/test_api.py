@@ -184,3 +184,21 @@ def test_estimate_endpoint(client):
     assert body["estimated_gb"] > 15
     assert "fits_now" in body
     assert body["resolved"]["num_frames"] % 8 == 1
+
+
+def test_dry_run_real_estimates_holds_job(client, monkeypatch):
+    from vidgen import memory, model_manager
+    from vidgen.config import reset_config
+    from vidgen.memory import MemorySnapshot
+
+    monkeypatch.setenv("VIDGEN_DRY_RUN_REAL_ESTIMATES", "1")
+    reset_config()
+    snap = MemorySnapshot(total_gb=32.0, available_gb=12.0, used_gb=20.0, swap_used_gb=0.0, source="fake")
+    monkeypatch.setattr(memory, "snapshot", lambda: snap)
+    monkeypatch.setattr(model_manager, "snapshot", lambda: snap)
+
+    r = client.post("/jobs", json={"type": "video", "prompt": "a lighthouse in fog"})
+    assert r.status_code == 201, r.text
+    held = wait_for(client, r.json()["id"], {"held", "completed", "failed"})
+    assert held["status"] == "held", held
+    assert "GB" in held["message"]

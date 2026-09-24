@@ -143,10 +143,12 @@ class Worker:
             return
 
         estimated = float(job["estimated_gb"] or 0.0)
-        if cfg.dry_run:
+        if cfg.dry_run and not cfg.dry_run_real_estimates:
             # The stub renderer does not load weights, so charging it the real
             # model's footprint would hold every job forever. Submit-time
-            # admission control still uses the real estimate.
+            # admission control still uses the real estimate. Set
+            # VIDGEN_DRY_RUN_REAL_ESTIMATES=1 to guard the stub with the real
+            # model's footprint instead, which makes held jobs reproducible.
             alloc_gb = float(os.environ.get("VIDGEN_DRY_RUN_ALLOC_MB", "256")) / 1024
             estimated = round(alloc_gb + 0.5, 2)
         started = time.time()

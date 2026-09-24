@@ -91,6 +91,9 @@ class Config:
     python_executable: str = field(default_factory=lambda: os.environ.get("VIDGEN_PYTHON", ""))
     job_timeout_seconds: int = field(default_factory=lambda: _int("VIDGEN_JOB_TIMEOUT_SECONDS", 60 * 90))
     dry_run: bool = field(default_factory=lambda: _bool("VIDGEN_DRY_RUN", False))
+    # In dry-run mode, admit the stub using the real model's estimated peak
+    # rather than the stub's own small allocation, so the hold path shows up.
+    dry_run_real_estimates: bool = field(default_factory=lambda: _bool("VIDGEN_DRY_RUN_REAL_ESTIMATES", False))
 
     # --- model tooling ---------------------------------------------------
     mlx_video_module: str = field(default_factory=lambda: os.environ.get("VIDGEN_MLX_VIDEO_MODULE", "mlx_video"))
