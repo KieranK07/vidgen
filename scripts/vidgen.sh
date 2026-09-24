@@ -8,8 +8,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-# shellcheck disable=SC1091
-[ -f "$ROOT/.env" ] && set -a && . "$ROOT/.env" && set +a
+# Load .env, but let variables already set by the caller win, so
+# `VIDGEN_DRY_RUN=1 ./scripts/vidgen.sh restart` works whatever .env says.
+if [ -f "$ROOT/.env" ]; then
+  _caller_env="$(export -p | grep -E '^(declare -x|export) VIDGEN_' || true)"
+  # shellcheck disable=SC1091
+  set -a; . "$ROOT/.env"; set +a
+  eval "$_caller_env"
+  unset _caller_env
+fi
 
 PORT="${VIDGEN_PORT:-8817}"
 HOST="${VIDGEN_HOST:-127.0.0.1}"
