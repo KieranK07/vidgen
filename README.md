@@ -1,17 +1,12 @@
 # vidgen
 
-A local job queue and dashboard for running LTX-2.3, Wan2.2 and FLUX.1 on a
-32GB Apple Silicon Mac without letting the machine swap itself to death.
-Text-to-video, image-to-video, text-to-image and inpainting/outpainting, queued
-and browsable from one page.
-
-Fully local: no cloud calls, no telemetry, no accounts. The only network traffic
-is the initial model download from Hugging Face, which you can do once and then
-run offline.
-
 ![Queue view showing a job held with a plain-language memory reason ("needs ~11.2GB but only 8.9GB is free under the 28GB ceiling... Over by 3.4GB"), alongside queued and completed jobs and the model manager log](docs/img/dashboard-held-job.png)
 
-![FastAPI /docs endpoint list for the vidgen HTTP API](docs/img/api-docs.png)
+A local job queue and dashboard for LTX-2.3, Wan2.2 and FLUX.1 on a 32GB Apple
+Silicon Mac, with admission control that keeps the machine from swapping.
+Text-to-video, image-to-video, text-to-image and inpaint/outpaint, queued and
+browsable from one page. No cloud calls, no telemetry, no accounts; the only
+network traffic is the first model download from Hugging Face.
 
 ```
   Video   LTX-2.3 (22B) via mlx-video, Quality / Super-Quality two-stage
@@ -20,310 +15,159 @@ run offline.
   Fill    FLUX.1-Fill-dev via mflux, guidance 30 / 25 steps
 ```
 
-## Why it exists
-
-I wanted to run current video models on a fanless M4 MacBook Air with 32GB of
-unified memory. The naive version of this — a script that loads a model and
-generates — works exactly once. Queue a second job with a different model and
-the machine locks up, because on Apple Silicon there is no separate VRAM pool
-to run out of: the GPU allocates from the same 32GB macOS is living in. Cross
-that line and you do not get an out-of-memory error, you get the whole Mac
-swapping, and a 20-minute render turning into an hour while Finder stops
-redrawing.
-
-So the interesting part of this project is not the generation. It is the
-admission control that decides whether a job is allowed to start at all.
-
----
-
 ## How it works
 
-Two constraints drive the whole design: 32GB of unified memory shared with
-macOS, and no fan.
+On Apple Silicon the GPU allocates from the same 32GB that macOS uses. Going
+over does not raise an out-of-memory error; the Mac starts swapping and a
+20-minute render takes an hour. vidgen decides whether a job may start at all.
 
-**One model resident at a time, enforced.** Video and image models here are
-14–22B parameters. Two of them resident at once does not fit, and the failure
-mode is not a clean error — it is macOS quietly swapping, which on unified
-memory collapses generation speed. So the queue is strictly sequential, and the
-model manager unloads the current model *before* it evaluates whether the next
-one can load. An immediate LTX-2.3 → FLUX.1 [dev] switch never holds both.
+- **One model resident at a time.** The queue is sequential, and the model
+  manager unloads the current model before checking whether the next one fits.
+  An LTX-2.3 to FLUX.1 switch never holds both.
+- **Runners are child processes.** Dropping references in a long-lived Python
+  process does not reliably return Metal memory. When a child process exits,
+  every buffer is freed, and a wedged render can be killed without taking the
+  service down.
+- **Headroom guard at 28GB.** Before a load, vidgen reads unified-memory state
+  (`psutil`, else `sysctl` + `vm_stat`) and compares `in use + estimated peak +
+  1GB margin` against the ceiling. Estimates come from a per-model, per-quant,
+  per-preset table plus a term that scales with resolution and frame count.
 
-**Runners are child processes.** "Unloading" a model inside a long-lived Python
-process means dropping references and hoping the Metal allocator gives the pool
-back. It largely does not, and fragmentation compounds across jobs. Running each
-render in a child process makes unloading an OS-level guarantee: the process
-exits, every buffer is freed. The model manager owns the policy; the subprocess
-is the mechanism. It also means a wedged render can be killed without taking the
-service down.
+Each job gets one of three outcomes:
 
-**A hard headroom guard at ~28GB.** Before any load, vidgen reads the real
-unified-memory state — `psutil` if present, otherwise `sysctl hw.memsize` plus
-`vm_stat`, counting free + speculative + purgeable + file-backed pages as what
-an allocation can actually take — and compares `in use + estimated peak for this
-job + 1GB margin` against a 28GB ceiling, leaving ~4GB for macOS. The estimate
-comes from a per-model, per-quantization, per-preset footprint table plus a
-latent/VAE overhead term that scales with resolution and frame count.
+- Fits now: load and run.
+- Does not fit right now: **held** with a reason ("Over by 3.2GB, close memory-heavy apps")
+  and re-checked on a timer.
+- Can never fit on this machine (LTX-2.3 at Q8, say): rejected at submit time
+  with a suggestion.
 
-Three outcomes, and the distinction between them is the point:
-
-- Fits now → load and run.
-- Does not fit *right now*, but could → the job is **held** in the queue with a
-  plain-language reason ("over by 3.2GB — close browser tabs") and re-checked on
-  a timer. It is not failed.
-- Could never fit on this machine at any point — LTX-2.3 at Q8, say — → rejected
-  at submit time, with a suggestion of what to change.
-
-If the memory probe itself fails, the guard refuses rather than loading blind.
-
-**Quantization is a quality decision, not a convenience one.** The defaults are
-the highest-quality option that fits: Q8 for FLUX (near-indistinguishable from
-full precision), Q6 for LTX-2.3, Q5 for Wan2.2. Q4 is selectable everywhere and
-recommended nowhere.
-
----
-
-## Requirements
-
-- Apple Silicon Mac, macOS 14+
-- Python 3.11+
-- ~120GB free disk if you download all four model families
-- `ffmpeg` (optional, only used by the dry-run stub renderer): `brew install ffmpeg`
+If the memory probe fails, the guard refuses rather than loading blind.
+Defaults are the highest quality that fits: Q8 for FLUX, Q6 for LTX-2.3, Q5 for
+Wan2.2.
 
 ## Install
 
+Requires an Apple Silicon Mac on macOS 14+, Python 3.11+, and about 120GB of
+disk for all four model families. `ffmpeg` is optional (dry-run stub only).
+
 ```bash
-./scripts/setup.sh            # creates .venv, installs the service + both model stacks
-WITH_MODELS=0 ./scripts/setup.sh   # service only; the dashboard runs in dry-run mode
-cp .env.example .env          # setup.sh does this for you if .env is absent
+./scripts/setup.sh                 # .venv, service, test deps, both model stacks
+WITH_MODELS=0 ./scripts/setup.sh   # service and test deps only
 ```
 
-The model stacks are `mlx-video` (LTX-2.3, Wan2.2) and `mflux` (FLUX.1 dev and
-Fill). Nothing in the code hardcodes a path — `.env` controls the model cache
-directory, output directory, port and every memory threshold. `.env.example` is
-the annotated list.
+`setup.sh` copies `.env.example` to `.env` if it is missing. `.env` sets the
+model cache, output directory, port and every memory threshold. Variables
+already set in the shell take precedence over `.env`.
 
-## Model downloads
-
-Weights are fetched on first use into `VIDGEN_MODEL_CACHE_DIR` (default
-`~/.cache/huggingface`). The first run of each model is slow; afterwards
-everything is local. The gotchas, one per family:
-
-- **LTX-2.3** (default video engine, ~22B) needs an *MLX-converted* repo, not
-  the original weights. mlx-video's conversions live under `prince-canuma/LTX-2-*`;
-  `hf download prince-canuma/LTX-2-dev`, then set `VIDGEN_LTX_MODEL_REPO`.
-  Quantization is applied at load time and is mandatory, not optional — full
-  precision does not fit alongside macOS.
-- **Wan2.2** (alternate video engine) wants the **14B** T2V/I2V weights, not the
-  5B or 1.3B variants, at **Q5 or Q6** GGUF. Q4 has visible quality loss. Point
-  `VIDGEN_WAN_MODEL_DIR` at the directory; Wan jobs fail with a clear message
-  until you do.
-- **FLUX.1 [dev]** and **FLUX.1-Fill-dev** are gated repos — accept the license
-  on each model page and `hf auth login` once. mflux resolves them from the HF
-  cache; `VIDGEN_FLUX_DEV_PATH` / `VIDGEN_FLUX_FILL_PATH` override with a local
-  directory.
+Weights download on first use. Per-model setup (MLX-converted LTX repo, Wan
+GGUF directory, gated FLUX repos) is in [docs/operations.md](docs/operations.md).
 
 ## Run
 
 ```bash
-./scripts/vidgen.sh start      # start in the background
-./scripts/vidgen.sh status     # pid + live memory/queue state
-./scripts/vidgen.sh logs       # tail the log
-./scripts/vidgen.sh stop
-./scripts/vidgen.sh restart
+./scripts/vidgen.sh start      # also: stop | restart | status | logs
+./scripts/vidgen.sh install    # launchd agent at login; uninstall to remove
 ```
 
-Then open **http://127.0.0.1:8817**.
+Then open http://127.0.0.1:8817.
 
-To run it at login as a launchd agent (the plist is generated from your actual
-paths, not a checked-in template):
-
-```bash
-./scripts/vidgen.sh install     # writes ~/Library/LaunchAgents/com.vidgen.server.plist
-./scripts/vidgen.sh uninstall
-```
-
-### Try it without any weights
+### Without weights
 
 ```bash
 VIDGEN_DRY_RUN=1 ./scripts/vidgen.sh restart
 ```
 
-Dry-run mode swaps in a stub renderer that really runs as a subprocess, really
-allocates memory, really reports progress and really writes an output file —
-so the queue, the guard, the gallery and the mask editor all work end to end
-before you have downloaded 60GB of weights.
+Dry-run swaps in a stub renderer that runs as a subprocess, allocates memory,
+reports progress and writes an output file, so the queue, guard, gallery and
+mask editor work end to end.
 
----
+By default the stub is admitted at its own small footprint, so jobs never hold.
+To see the held path, have the guard charge the real model's estimate:
+
+```bash
+VIDGEN_DRY_RUN=1 VIDGEN_DRY_RUN_REAL_ESTIMATES=1 ./scripts/vidgen.sh restart
+```
+
+A default LTX-2.3 video job is then held whenever less than its estimated peak
+is free under the ceiling. `VIDGEN_DRY_RUN_ALLOC_MB` sets how much memory the
+stub itself allocates.
 
 ## Using it
 
-Four tabs — Video, Image, Inpaint/Outpaint, Gallery — plus a Queue view. The
-header is always visible and always shows the resident model, unified memory
-used against the ceiling, and a warning if the system has started swapping.
-
-Video takes a prompt, engine, preset, quantization, size, duration and seed,
-plus an optional start image which turns the job into image-to-video. Frame
-counts snap to 8n+1 and dimensions to multiples of 64 because both engines
-require it; the server rounds rather than rejecting.
+Tabs for Video, Image, Inpaint/Outpaint and Gallery, plus a Queue view. The
+header shows the resident model, memory used against the ceiling, and a swap
+warning. Frame counts snap to 8n+1 and dimensions to multiples of 64.
 
 | Preset | LTX-2.3 pipeline | What it does |
 | --- | --- | --- |
-| Fast | `distilled` | Single distilled pass. Present for comparison; not the default. |
-| **Quality** | `dev-two-stage` | Guided half-res pass → 2× latent upscale → distilled refine. **Default.** |
-| Super-Quality | `dev-two-stage-hq` | Same path at higher guidance and full refine. Slowest, best. |
+| Fast | `distilled` | Single distilled pass, for comparison. |
+| **Quality** | `dev-two-stage` | Half-res pass, 2x latent upscale, distilled refine. Default. |
+| Super-Quality | `dev-two-stage-hq` | Same path at higher guidance and full refine. |
 
-Inpaint/Outpaint has a brush-based mask editor (paint/erase/invert/clear) and a
-before/after comparison. White regenerates, black keeps, matching what
-FLUX.1-Fill expects. Outpainting is the same operation: set margins, hit **Apply
-margins**, and the new canvas area is pre-filled into the mask.
-
-The Queue view shows every job with live progress, the reason any job is being
-held, and the model manager's log of what loaded, what unloaded, and how much
-memory came back.
-
----
+The inpaint editor paints a mask (white regenerates, black keeps). Outpainting
+sets margins and pre-fills the new area into the mask.
 
 ## API
 
-Everything the dashboard does is a plain HTTP call.
+![FastAPI /docs endpoint list for the vidgen HTTP API](docs/img/api-docs.png)
 
 ```
 POST   /jobs               queue a job
 GET    /jobs               list jobs         ?status=&type=&model=&limit=
 GET    /jobs/{id}          one job, with meta.json inlined when finished
 DELETE /jobs/{id}          cancel if active, delete (and purge files) if finished
-
 POST   /uploads            multipart image upload -> {id}, for i2v / inpaint
 GET    /outputs/{id}/file  the render        ?download=true
 GET    /outputs/{id}/meta.json
-
 GET    /api/status         resident model, memory, queue counts, event log
 GET    /api/models         model + preset + quantization catalog
 POST   /api/estimate       what a job would cost, and whether it fits right now
 ```
 
-`POST /jobs` takes a unified body with a `type` discriminator:
-
 ```bash
-# text-to-video, Super-Quality
 curl -X POST localhost:8817/jobs -H 'Content-Type: application/json' -d '{
   "type": "video",
   "prompt": "A lighthouse in heavy fog, slow push-in, anamorphic",
   "model": "ltx2", "preset": "super-quality", "quant": "q6",
   "width": 768, "height": 512, "duration_seconds": 4, "fps": 24, "seed": 7
 }'
-
-# image-to-video: the same call plus a source_image upload id
-curl -X POST localhost:8817/uploads -F file=@still.png     # -> {"id": "...png"}
 ```
 
-`type` is `"image"` or `"inpaint"` for the other two; inpaint additionally takes
-`source_image` and `mask_image` upload ids.
+`type` is `video`, `image` or `inpaint`. Image-to-video adds a `source_image`
+upload id; inpaint adds `source_image` and `mask_image`. Each finished job
+writes `outputs/<job_id>/` with the render, `meta.json` (parameters, exact
+command, estimated and observed memory peak) and `run.log`.
 
-Every finished job writes `outputs/<job_id>/`:
+## Tests
 
-```
-output.mp4  |  output.png     the render
-meta.json                     prompt, model, preset, quant, seed, resolution,
-                              the exact command that was run, timestamps, and
-                              resolved memory usage — estimated peak, observed
-                              peak RSS, ceiling, and system state at start
-run.log                       full runner stdout/stderr
-source.png, mask.png          inpaint jobs only, so before/after survives cleanup
+```bash
+.venv/bin/python -m pytest -q
 ```
 
-Observed peaks are also accumulated in `data/observed_footprints.json`. If your
-real numbers drift from the built-in estimates, write the corrections into
-`data/model_footprints.json` (`{"ltx2:super-quality:q6": 23.5}`) and the guard
-uses yours.
+The suite covers the headroom guard and single-model invariant against a faked
+memory probe, and drives the API against the stub renderer. It needs no GPU and
+no weights.
 
----
+## Limits
 
-## Operating notes for a fanless machine
-
-**This Mac has no fan.** Sustained GPU load raises the chassis temperature until
-macOS reduces clocks — there is no way to cool it back down while work
-continues. Practical consequences:
-
-- **Expect a long session to slow down, not to hold peak speed.** The first
-  Super-Quality LTX-2.3 render of the evening is the fastest one you will get.
-  Back-to-back Super-Quality or Fill runs will progressively throttle; a job
-  that took 18 minutes cold can take noticeably longer as the third or fourth in
-  a row. This is normal and is not a bug in the queue.
-- **If you need consistent timings** — comparing two prompts or two seeds, say —
-  leave a few minutes between runs rather than queueing them back to back.
-- **Quality-first defaults are slow by design.** The two-stage path exists
-  precisely because it produces better output than the distilled one. Queue it
-  and walk away; that is the intended workflow, and the reason the whole thing
-  is a queue rather than a synchronous call.
-- **Close memory-heavy apps before a big render, browser tabs above all.** A
-  browser with many tabs open can easily hold 4–8GB, which is the difference
-  between LTX-2.3 at Q6 fitting under the 28GB ceiling and being held. The
-  dashboard header shows exactly how much room is left; if a job is held, the
-  message tells you how many GB you need to free.
-- **Never let it swap.** If the header shows a swap warning, stop queueing and
-  free memory. Swapping unified memory does not degrade performance gracefully
-  — it falls off a cliff. The guard exists to prevent this, but it can only
-  control vidgen's own allocations, not what else you have open.
-
----
-
-## Troubleshooting
-
-**"needs ~X GB but only Y GB is free under the ceiling"** — working as intended.
-Close some apps, or lower resolution / frame count / quantization. The job stays
-held and starts on its own once there is room.
-
-**"…which alone exceeds the 28GB ceiling"** — that combination can never run on
-this machine. Step the quantization down (Q6 for LTX-2.3, not Q8) or shrink the
-output.
-
-**A runner exits with an unrecognized-argument error.** The upstream CLIs move
-fast. Rather than patching code, adapt with the escape hatches in `.env`:
-`VIDGEN_LTX_EXTRA_ARGS`, `VIDGEN_WAN_EXTRA_ARGS`, `VIDGEN_MFLUX_EXTRA_ARGS`,
-`VIDGEN_MFLUX_FILL_EXTRA_ARGS` are appended verbatim, and
-`VIDGEN_MLX_VIDEO_QUANT_FLAG` renames the quantization flag. Check
-`outputs/<job_id>/run.log` for the failure and the exact command in `meta.json`.
-
-**`mflux-generate: not found`** — the service is running from a different
-interpreter than the one mflux was installed into. Set `VIDGEN_PYTHON` to the
-venv's python, or `VIDGEN_MFLUX_GENERATE` to the binary's absolute path.
-
-**Jobs marked "Service restarted while this job was running."** — expected after
-a crash or restart mid-render. Renders are not resumable; resubmit.
-
-**Gated-repo 401s from Hugging Face** — accept the license for FLUX.1-dev and
-FLUX.1-Fill-dev on their model pages, then `hf auth login`.
-
-## Status
-
-Working prototype that I use. Honest limits:
-
-- **Tested on one machine**, an M4 Air with 32GB. The ceiling defaults assume
-  that shape. On a 64GB or 128GB Mac you would raise `VIDGEN_MEMORY_CEILING_GB`
-  and most of the holding behaviour stops mattering.
-- **The footprint estimates are hand-measured**, not derived. They are good
-  enough to keep the guard on the right side of the line, but a job can still
-  hold when it would in fact have fit, or overshoot its estimate under an
-  unusual resolution. Observed peaks are logged so you can correct them; nothing
-  corrects them automatically.
-- **The LTX-2.3 and FLUX paths are the ones I actually run.** The Wan2.2 runner
-  is implemented and the argument construction is tested, but I have generated
-  far less with it, so treat it as the less-worn path.
-- **The upstream CLIs move fast.** mlx-video and mflux rename flags between
-  releases; that is why every runner has a verbatim extra-args escape hatch
-  rather than me chasing renames in code.
-- **No CI.** Tests run locally with `python -m pytest -q` (25 tests). They cover
-  the headroom guard and the single-active-model invariant against a faked
-  memory probe, and drive the whole API against the stub renderer — so the suite
-  runs on any machine, with no GPU and no weights on disk.
+- Tested on one machine, an M4 Air with 32GB. On a larger Mac, raise
+  `VIDGEN_MEMORY_CEILING_GB`.
+- Footprint estimates are hand-measured. Observed peaks are logged for
+  correction; see [docs/operations.md](docs/operations.md).
+- The Wan2.2 runner is tested for argument construction but has seen far less
+  use than the LTX-2.3 and FLUX paths.
+- Upstream CLIs rename flags between releases; each runner has an extra-args
+  escape hatch in `.env`.
 - Renders are not resumable. A restart mid-job loses the job.
+
+Operating notes for fanless Macs and troubleshooting are in
+[docs/operations.md](docs/operations.md).
 
 ## Layout
 
 ```
 vidgen/
-  config.py          env-driven configuration, no hardcoded paths
+  config.py          env-driven configuration
   memory.py          unified-memory probing (psutil -> vm_stat -> /proc)
   models.py          model/preset/quant registry + peak-footprint estimator
   model_manager.py   single-active-model policy, headroom guard, subprocess exec
@@ -331,9 +175,10 @@ vidgen/
   worker.py          single-worker sequential queue
   schemas.py         request validation + parameter resolution
   runners/           mlx-video (LTX, Wan) and mflux (generate, fill) adapters
-  static/index.html  the dashboard, single file
-scripts/             setup.sh, vidgen.sh (start/stop/install)
+  static/index.html  the dashboard
+scripts/             setup.sh, vidgen.sh
 tests/               memory-guard and API tests
+docs/operations.md   model setup, fanless notes, troubleshooting
 ```
 
 ## License
