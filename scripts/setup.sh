@@ -15,8 +15,8 @@ echo "==> creating .venv with $PY"
 . .venv/bin/activate
 python -m pip install --upgrade pip wheel >/dev/null
 
-echo "==> installing the service"
-pip install -e .
+echo "==> installing the service and test deps"
+pip install -e '.[dev]'   # dev extra adds pytest + httpx for the test suite
 
 if [ "${WITH_MODELS:-1}" = "1" ]; then
   echo "==> installing mlx-video (LTX-2 / Wan2.2)"
